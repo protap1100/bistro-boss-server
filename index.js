@@ -41,22 +41,53 @@ async function run() {
 
     // Middlewares
     const verifyToken = (req, res, next) => {
-      // console.log("inside verify token", req.headers.authorization);
-      const token = req.headers?.authorization?.split(" ")[1];
-      console.log(token)
-      if (!token || token == null) {
-        return res.status(401).send({ message: "forbidden access" });
+      // console.log('inside verify token', req.headers.authorization);
+      if (!req.headers.authorization) {
+        return res.status(401).send({ message: "unauthorized access" });
       }
-      // console.log()
-      // console.log(token)
+      const token = req.headers.authorization.split(" ")[1];
       jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
         if (err) {
-          return res.status(401).send({ message: 'unauthorized access' })
+          return res.status(401).send({ message: "unauthorized access" });
         }
         req.decoded = decoded;
         next();
-      })
+      });
     };
+
+    // user verify admin after verify token
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email; // error here
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      const isAdmin = user?.role === "admin";
+      if (!isAdmin) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
+    app.get("/users/admin/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      // console.log("email", email);
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "unauthorized access" });
+      }
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      let isAdmin = false;
+      if (user) {
+        isAdmin = user?.role === "admin";
+      }
+      res.send({ isAdmin });
+    });
+
+    // getting users data
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
+      // console.log(req.headers)
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
 
     // Users Related Api
     app.post("/users", async (req, res) => {
@@ -68,13 +99,6 @@ async function run() {
         return res.send({ message: "User Already Exist" });
       }
       const result = await userCollection.insertOne(user);
-      res.send(result);
-    });
-
-    // getting users data
-    app.get("/users", verifyToken, async (req, res) => {
-      // console.log(req.headers)
-      const result = await userCollection.find().toArray();
       res.send(result);
     });
 
@@ -98,8 +122,49 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/menuCollection", async (req, res) => {
+    app.get("/menu", async (req, res) => {
       const result = await menuCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.post("/menu", verifyToken, verifyAdmin, async (req, res) => {
+      const item = req.body;
+      const result = await menuCollection.insertOne(item);
+      res.send(result);
+    });
+
+    app.delete("/menu/:id", verifyToken, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      // console.log(id)
+      const query = { _id: id };
+      // console.log(query)
+      const result = await menuCollection.deleteOne(query);
+      // console.log(result)
+      res.send(result);
+    });
+
+    app.get("/menu/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: id };
+      const result = await menuCollection.findOne(query);
+      res.send(result);
+    });
+
+    app.patch("/menu/:id", async (req, res) => {
+      const item = req.body;
+      const id = req.params.id;
+      const filter = { _id: id };
+      const updatedDoc = {
+        $set: {
+          name: item.name,
+          category: item.category,
+          price: item.price,
+          recipe: item.recipe,
+          image: item.image,
+        },
+      };
+
+      const result = await menuCollection.updateOne(filter, updatedDoc);
       res.send(result);
     });
 
