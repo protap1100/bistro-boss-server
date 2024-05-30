@@ -4,7 +4,9 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 5000;
+// console.log(process.env.STRIPE_SECRET_KEY)
 
 app.use(cors());
 app.use(express.json());
@@ -29,6 +31,7 @@ async function run() {
     const reviewCollection = database.collection("Review");
     const cartCollection = database.collection("CartCollection");
     const userCollection = database.collection("users");
+    const paymentCollection = database.collection("payment");
 
     // Jwt Related Api
     app.post("/jwt", async (req, res) => {
@@ -172,6 +175,49 @@ async function run() {
       const result = await reviewCollection.find().toArray();
       res.send(result);
     });
+
+    // Stripe Payment api's
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+      // console.log(amount)
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
+    });
+
+    // Saving Payment info to database
+    app.post("/payment", async (req, res) => {
+      const paymentData = req.body;
+      const paymentResult = await paymentCollection.insertOne(paymentData);
+      // res.send(paymentResult)
+      console.log("payment info", paymentResult);
+      const query = {
+        _id: {
+          $in: paymentData.cartIds.map(id => new ObjectId(id))
+        },
+      };
+      // const query = {_id : new ObjectId(id)}
+      const deleteResult = await cartCollection.deleteMany(query);
+      res.send({ paymentResult, deleteResult });
+    });
+
+    // Getting payment data 
+    app.get('/payment/:email', verifyToken, async(req,res)=>{
+      const query = {email : req.params.email}
+      if(req.params.email !== req.decoded.email){
+        return res.status(403).send({message : 'forbidden access'});
+      }
+      const result = await paymentCollection.find(query).toArray();
+      res.send(result)
+    })
+
+
 
     app.post("/carts", async (req, res) => {
       const cartItem = req.body;
